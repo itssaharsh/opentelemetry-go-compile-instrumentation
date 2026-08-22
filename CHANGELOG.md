@@ -12,6 +12,7 @@ The full list of changes can be found in the compare view for the respective rel
 
 ### Changed
 
+- The `database/sql` instrumentation no longer splits the whole SQL statement to read `db.operation.name`, and sizes its attribute slice up front, so both run with fewer allocations per query. ([#TBD](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation/pull/TBD))
 - ⚠️ **Breaking Change:** Template variable `{{ FuncName }}` should now be accessed with `{{ .FuncName }}`. ([#729](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation/pull/729))
 
 ### Deprecated
