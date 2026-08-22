@@ -12,6 +12,7 @@ The full list of changes can be found in the compare view for the respective rel
 
 ### Changed
 
+- The `log` instrumentation adds trace and span ids to a log line without copying the line into a string or building the suffix through a `strings.Builder`, so it allocates nothing per line. ([#TBD](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation/pull/TBD))
 - ⚠️ **Breaking Change:** Template variable `{{ FuncName }}` should now be accessed with `{{ .FuncName }}`. ([#729](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation/pull/729))
 
 ### Deprecated
