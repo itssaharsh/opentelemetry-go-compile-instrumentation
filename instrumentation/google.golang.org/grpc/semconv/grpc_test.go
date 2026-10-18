@@ -325,3 +325,20 @@ func TestIsOTELExporterPath(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFullMethod_SingleAllocation(t *testing.T) {
+	// ParseFullMethod runs for every RPC on both client and server. Building its
+	// attributes should take one allocation, not the three that growing a
+	// one-element slice twice would cost.
+	allocs := testing.AllocsPerRun(100, func() {
+		_, _ = ParseFullMethod("/greeter.Greeter/SayHello")
+	})
+	assert.LessOrEqual(t, allocs, 1.0, "ParseFullMethod should allocate at most once")
+}
+
+func BenchmarkParseFullMethod(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = ParseFullMethod("/greeter.Greeter/SayHello")
+	}
+}

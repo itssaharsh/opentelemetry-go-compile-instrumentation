@@ -533,3 +533,30 @@ func TestServerStatsHandler_NilGRPCContext_IsSafeNoOp(t *testing.T) {
 		})
 	}, "HandleRPC must return before dereferencing a nil gRPCContext")
 }
+
+// BenchmarkServerStatsHandler_UnaryRPC drives one unary RPC's worth of stats
+// events through the server handler: TagRPC, then Begin, InPayload, OutHeader,
+// OutPayload and End, which is the sequence gRPC delivers for one request.
+func BenchmarkServerStatsHandler_UnaryRPC(b *testing.B) {
+	b.Setenv("OTEL_GO_ENABLED_INSTRUMENTATIONS", "grpc")
+	initInstrumentation()
+
+	tp := sdktrace.NewTracerProvider()
+	b.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	tracer = tp.Tracer(instrumentationName, trace.WithInstrumentationVersion(runtime.ModuleVersion()))
+
+	handler := newServerStatsHandler()
+	info := &stats.RPCTagInfo{FullMethodName: "/greeter.Greeter/SayHello"}
+	begin := time.Now()
+	end := &stats.End{BeginTime: begin, EndTime: begin.Add(time.Millisecond)}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		ctx := handler.TagRPC(context.Background(), info)
+		handler.HandleRPC(ctx, &stats.Begin{})
+		handler.HandleRPC(ctx, &stats.InPayload{Length: 32})
+		handler.HandleRPC(ctx, &stats.OutHeader{})
+		handler.HandleRPC(ctx, &stats.OutPayload{Length: 32})
+		handler.HandleRPC(ctx, end)
+	}
+}
