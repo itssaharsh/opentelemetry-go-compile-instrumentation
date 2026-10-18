@@ -92,6 +92,19 @@ func extractGZip(bundleReader io.Reader, targetDir string) (retErr error) {
 		}
 	}()
 
+	// The build temp directory is kept between builds, so these directories
+	// may still hold the bundle of an earlier otelc. Extracting over them
+	// would leave behind any file that bundle had and this one does not, and
+	// the leftover would be compiled alongside the new files. Clear them only
+	// once the bundle has been opened, so that a bundle that cannot be read
+	// does not take a working extraction with it. The rest of the directory,
+	// such as the state snapshots and the build cache, is left alone.
+	for _, dir := range []string{unzippedPkgDir, unzippedInstDir} {
+		if err := os.RemoveAll(filepath.Join(targetDir, dir)); err != nil {
+			return ex.Wrapf(err, "removing %s extracted by a previous build", dir)
+		}
+	}
+
 	tarReader := tar.NewReader(gzReader)
 	for {
 		header, err := tarReader.Next()

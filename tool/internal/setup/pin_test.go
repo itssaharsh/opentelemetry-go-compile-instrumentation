@@ -1838,15 +1838,27 @@ func TestGeneratePinnedProjects_ExtractBundleError(t *testing.T) {
 	)
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644))
 
-	buildTemp := util.GetBuildTempDir()
-	require.NoError(t, os.MkdirAll(buildTemp, 0o755))
-	pkgPath := filepath.Join(buildTemp, unzippedPkgDir)
-	require.NoError(t, os.WriteFile(pkgPath, []byte("file"), 0o644))
+	// Extraction clears the previous bundle before writing this one, so leave
+	// an earlier extraction behind that cannot be removed: a read-only
+	// directory with an entry in it. generatePinnedProjects must report the
+	// failure rather than carry on with half of the old bundle still there.
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory does not stop its entries being removed on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove entries from a read-only directory")
+	}
+	locked := filepath.Join(util.GetBuildTempDir(), unzippedPkgDir, "locked")
+	require.NoError(t, os.MkdirAll(locked, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "a.go"), []byte("package a\n"), 0o644))
+	require.NoError(t, os.Chmod(locked, 0o555))
+	// Restore write permission so that t.TempDir can clean up after the test.
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
 	_, err := generatePinnedProjects(t.Context(), []string{tempDir}, PinOptions{
 		Args: []string{"."},
 	})
-	require.Error(t, err)
+	require.ErrorContains(t, err, "removing pkg extracted by a previous build")
 }
 
 func TestUpdateToolFile_RemoveImportsError(t *testing.T) {

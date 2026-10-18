@@ -351,3 +351,73 @@ func TestExtractGZip_CloseError(t *testing.T) {
 	err = extractGZip(bytes.NewReader(truncated), tmpDir)
 	require.Error(t, err)
 }
+
+// writeBundle returns a gzipped tar that holds dirs, in order, and then files.
+// Directories come first so that each file's parent exists when it is
+// extracted, as in a bundle built by make package.
+func writeBundle(t *testing.T, dirs []string, files map[string]string) *bytes.Buffer {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, dir := range dirs {
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: dir, Mode: 0o755, Typeflag: tar.TypeDir}))
+	}
+	for name, content := range files {
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name:     name,
+			Mode:     0o644,
+			Size:     int64(len(content)),
+			Typeflag: tar.TypeReg,
+		}))
+		_, err := tw.Write([]byte(content))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	return &buf
+}
+
+func TestExtractGZip_RemovesFilesFromEarlierBundle(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// What an earlier otelc left behind: a file in each extracted directory
+	// that the new bundle no longer ships, like sdk/trace/hook.go after it was
+	// merged into gls.go. Build state that is not part of the bundle must
+	// survive.
+	staleInst := filepath.Join(tmpDir, unzippedInstDir, "sdk", "trace", "hook.go")
+	stalePkg := filepath.Join(tmpDir, unzippedPkgDir, "removed.go")
+	snapshot := filepath.Join(tmpDir, "state", "go.mod")
+	mustWriteFile(t, staleInst, "package trace")
+	mustWriteFile(t, stalePkg, "package pkg")
+	mustWriteFile(t, snapshot, "module example")
+
+	bundle := writeBundle(t,
+		[]string{"pkg_temp", "instrumentation_temp", "instrumentation_temp/sdk", "instrumentation_temp/sdk/trace"},
+		map[string]string{
+			"pkg_temp/runtime.go":                      "package pkg",
+			"instrumentation_temp/sdk/trace/gls.go":    "package trace",
+			"instrumentation_temp/sdk/trace/otelc.yml": "rules",
+		},
+	)
+	require.NoError(t, extractGZip(bundle, tmpDir))
+
+	require.NoFileExists(t, staleInst, "a file the new bundle no longer ships must not survive")
+	require.NoFileExists(t, stalePkg, "a file the new bundle no longer ships must not survive")
+	require.FileExists(t, filepath.Join(tmpDir, unzippedInstDir, "sdk", "trace", "gls.go"))
+	require.FileExists(t, filepath.Join(tmpDir, unzippedPkgDir, "runtime.go"))
+	require.FileExists(t, snapshot, "build state outside the extracted directories must be kept")
+}
+
+func TestExtractGZip_UnreadableBundleKeepsEarlierExtraction(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	earlier := filepath.Join(tmpDir, unzippedInstDir, "sdk", "trace", "gls.go")
+	mustWriteFile(t, earlier, "package trace")
+
+	err := extractGZip(bytes.NewReader([]byte("not gzip data")), tmpDir)
+	require.Error(t, err)
+
+	require.FileExists(t, earlier, "a bundle that cannot be opened must not remove the previous extraction")
+}
